@@ -123,18 +123,14 @@ services:
       - mariadb
       - php
     volumes:
-      - ./nginx/html:/usr/share/nginx/html:ro       # landing page statis (semogasukses.com)
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro         # server block landing + app dashboard
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro         # server block semogasukses.com (landing + dashboard)
+      - ./www:/var/www/html:ro                      # kode PHP/asset (shared dengan service php)
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.landing.rule=Host(`semogasukses.com`)"
+      - "traefik.http.routers.landing.rule=Host(`semogasukses.com`) || Host(`www.semogasukses.com`)"
       - "traefik.http.routers.landing.entrypoints=web-app"
       - "traefik.http.routers.landing.service=landing-service"
       - "traefik.http.services.landing-service.loadbalancer.server.port=80"
-      # Dashboard PHP di host terpisah -> tetap dilayani nginx yang sama
-      - "traefik.http.routers.app.rule=Host(`app.semogasukses.com`)"
-      - "traefik.http.routers.app.entrypoints=web-app"
-      - "traefik.http.routers.app.service=landing-service"
 
   # ============================================================
   # 3b. PHP-FPM - DASHBOARD WEB (AISS UTS)

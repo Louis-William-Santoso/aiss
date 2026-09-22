@@ -78,7 +78,6 @@ add chain=srcnat out-interface=ether1 action=masquerade comment="Masquerade Inte
 # 5. DNS Statis (opsional, agar nama domain resolv dari dalam)
 # ------------------------------------------------------------
 /ip dns static add name=semogasukses.com      address=10.10.10.10
-/ip dns static add name=app.semogasukses.com  address=10.10.10.10
 /ip dns static add name=monitor.semogasukses.com address=10.10.10.10
 /ip dns static add name=sso.semogasukses.com  address=10.10.10.10
 # Untuk user VPN yang ingin akses traefik dashboard langsung:

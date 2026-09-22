@@ -46,3 +46,26 @@ INSERT INTO page_visits (page, visited_at) VALUES
   ('home', NOW() - INTERVAL 1 HOUR),
   ('home', NOW() - INTERVAL 30 MINUTE),
   ('home', NOW() - INTERVAL 10 MINUTE);
+
+-- ------------------------------------------------------------
+-- Tabel produk & solusi untuk halaman landing (semogasukses.com)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS products (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  category ENUM('product','solution') NOT NULL DEFAULT 'product',
+  description TEXT,
+  price DECIMAL(12,2) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Data dummy katalog (harga NULL = "Hubungi kami")
+INSERT INTO products (name, category, description, price) VALUES
+  ('CloudGuard WAF', 'product', 'Web Application Firewall berbasis AI yang memblokir SQLi, XSS, dan scanner secara real-time.', 15000000.00),
+  ('SecureLog Analyzer', 'product', 'Analisis log terpusat dengan deteksi anomali dan alerting otomatis ke e-mail/Slack.', 8500000.00),
+  ('VaultKeeper', 'product', 'Manajemen secret & sertifikat dengan rotasi otomatis dan audit trail lengkap.', 12000000.00),
+  ('SOC-as-a-Service', 'solution', 'Layanan pusat operasi keamanan 24/7: pemantauan, triase insiden, dan laporan bulanan.', NULL),
+  ('SIEM Terkelola', 'solution', 'Deploy dan kelola SIEM open-source (Wazuh/ELK) oleh tim kami di infrastruktur Anda.', NULL),
+  ('Red Team Assessment', 'solution', 'Simulasi serangan menyeluruh untuk mengukur ketahanan sistem terhadap ancaman nyata.', NULL),
+  ('Compliance Audit', 'solution', 'Audit kepatuhan keamanan informasi (ISO 27001, PDP) beserta rekomendasi mitigasi.', NULL);

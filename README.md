@@ -9,8 +9,8 @@ Internet ──▶ MikroTik (VLAN 10 & 20 + VPN L2TP/IPSEC)
                 ▼
         SafeLine WAF ──▶ Traefik ──▶ container apps
    (10.10.10.10:80/443)   (routing per-host)
-                              ├─ semogasukses.com      → Nginx (landing statis)
-                              ├─ app.semogasukses.com   → Nginx → PHP-FPM → dashboard → MariaDB
+                              ├─ semogasukses.com      → Nginx → PHP → landing (produk dari MariaDB)
+                              │                              └─ /dashboard (statistik + CRUD)
                               ├─ monitor.semogasukses.com → Grafana (SSO Keycloak) → MariaDB
                               └─ sso.semogasukses.com   → Keycloak (login + RBAC)
 ```
@@ -23,7 +23,7 @@ Internet ──▶ MikroTik (VLAN 10 & 20 + VPN L2TP/IPSEC)
 | SafeLine Mgt UI | `chaitin/safeline-mgt` | `10.20.20.10:9443` | Management WAF (VLAN 20/VPN) |
 | SafeLine Detector/API/PG/Redis | `chaitin/*`, `postgres`, `redis` | internal | Mesin deteksi |
 | Traefik | `traefik:v2.10` | `10.20.20.10:80` | Router + dashboard (mgmt whitelist) |
-| Nginx | `nginx:alpine` | internal | Landing `semogasukses.com` + proxy `app.semogasukses.com` |
+| Nginx | `nginx:alpine` | internal | `semogasukses.com` → PHP (landing `/` + dashboard `/dashboard`) |
 | PHP-FPM | `php:8.4-fpm-alpine` | internal | Dashboard PHP |
 | Grafana | `grafana/grafana` | internal | `monitor.semogasukses.com` |
 | Keycloak | `quay.io/keycloak` | internal | `sso.semogasukses.com` |
@@ -39,11 +39,18 @@ uts/
 │   ├── mikrotik.rsc             # skrip RouterOS: VLAN 10/20, L2TP/IPSEC, firewall, DNAT, netplan Ubuntu
 │   └── keycloak-setup.md        # panduan client "grafana", grup user/supervisor, klaim "groups"
 ├── nginx/
-│   ├── html/index.html          # landing page statis
-│   └── conf.d/{00-landing,10-app}.conf
+│   └── conf.d/00-site.conf       # 1 server block semogasukses.com (landing + dashboard)
 ├── php/Dockerfile               # php:8.4-fpm-alpine + pdo_mysql
-├── www/                         # dashboard PHP (index, config, system_stats, api/, assets/)
-├── mariadb/init/01-init.sql     # skema db website + seed (jalan sekali)
+├── www/                         # kode PHP
+│   ├── index.php                # front-controller router ("/" → landing, "/dashboard" → dashboard)
+│   ├── config.php               # koneksi PDO — baca env DB_*
+│   ├── system_stats.php         # metrik CPU/mem/disk/uptime host
+│   ├── views/
+│   │   ├── landing.php          # landing page: katalog produk/solusi dari tabel products
+│   │   └── dashboard.php        # dashboard: statistik sistem + CRUD users + kunjungan
+│   ├── api/                     # stats.php, visits.php, users.php
+│   └── assets/                  # style.css, app.js
+├── mariadb/init/01-init.sql     # skema db website + seed (users, page_visits, products) — jalan sekali
 └── grafana/
     ├── provisioning/            # data source MariaDB + provider dashboard
     └── dashboards/monitoring.json
@@ -87,13 +94,13 @@ contains(groups[*], 'supervisor') && 'Admin' || contains(groups[*], 'user') && '
 ## Verifikasi Cepat
 
 ```bash
-# Landing & dashboard (lewat traefik dengan header Host)
-curl -H "Host: semogasukses.com"    http://10.20.20.10/
-curl -H "Host: app.semogasukses.com" http://10.20.20.10/ | head -20
-curl -H "Host: app.semogasukses.com" http://10.20.20.10/api/stats.php
+# Landing (produk dari DB) & dashboard (lewat traefik dengan header Host)
+curl -H "Host: semogasukses.com" http://10.20.20.10/ | head -40
+curl -H "Host: semogasukses.com" http://10.20.20.10/dashboard | head -20
+curl -H "Host: semogasukses.com" http://10.20.20.10/api/stats.php
 
-# DB seed
-docker compose exec mariadb mariadb -uwebsite -p website -e "SELECT COUNT(*) FROM users;"
+# DB seed (users, page_visits, products)
+docker compose exec mariadb mariadb -uwebsite -p website -e "SELECT * FROM products;"
 
 # Log
 docker compose logs -f grafana keycloak php
@@ -110,4 +117,5 @@ docker compose logs -f grafana keycloak php
 
 ## Roadmap (opsional, sesuai prompt)
 
-- Tabel `products` / `solutions` di MariaDB yang ditampilkan di halaman web (CRUD via dashboard PHP).
+- ✅ **Katalog produk di landing**: tabel `products` (kategori product/solution + harga) di MariaDB, ditampilkan di `/` oleh PHP (lihat `mariadb/init/01-init.sql` & `www/views/landing.php`).
+- Opsional: CRUD produk via dashboard PHP.
