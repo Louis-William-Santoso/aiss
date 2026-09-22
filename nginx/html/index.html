@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SemogaSukses.com — Landing Page</title>
+<style>
+  :root {
+    --bg:#0b1220; --panel:#111a2e; --border:#1f2b45; --text:#e6edf7;
+    --muted:#8fa3c4; --accent:#3fa9f5; --green:#43d9a0; --amber:#f5b93f;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI",system-ui,sans-serif; min-height:100vh; }
+  .wrap { max-width:1080px; margin:0 auto; padding:48px 24px; }
+  .nav { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:18px; }
+  .logo { font-size:20px; font-weight:700; }
+  .logo span { color:var(--accent); }
+  .nav a { color:var(--muted); text-decoration:none; font-size:14px; margin-left:20px; }
+  .nav a:hover { color:var(--text); }
+  .hero { padding:72px 0 48px; text-align:center; }
+  .hero h1 { font-size:clamp(30px, 5vw, 52px); line-height:1.15; letter-spacing:.3px; }
+  .hero h1 em { color:var(--accent); font-style:normal; }
+  .hero p { color:var(--muted); max-width:640px; margin:20px auto 0; font-size:17px; line-height:1.6; }
+  .badges { display:flex; justify-content:center; gap:10px; margin-top:24px; flex-wrap:wrap; }
+  .badge { border:1px solid var(--border); border-radius:999px; padding:6px 14px; font-size:13px; color:var(--muted); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:18px; margin-top:56px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px; }
+  .card h3 { font-size:15px; margin-bottom:8px; }
+  .card p { color:var(--muted); font-size:13.5px; line-height:1.55; }
+  .card .ico { font-size:22px; display:block; margin-bottom:10px; }
+  .links { display:flex; justify-content:center; gap:14px; flex-wrap:wrap; margin-top:52px; }
+  .btn { display:inline-block; border-radius:10px; padding:12px 22px; font-size:14px; font-weight:600; text-decoration:none; border:1px solid var(--border); color:var(--text); background:var(--panel); transition:.2s; }
+  .btn.primary { background:linear-gradient(90deg,#0284c7,#0ea5e9); border:none; }
+  .btn:hover { transform:translateY(-2px); }
+  footer { text-align:center; color:var(--muted); font-size:13px; margin-top:64px; border-top:1px solid var(--border); padding-top:22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav">
+    <div class="logo">Semoga<span>Sukses</span>.com</div>
+    <div>
+      <a href="https://app.semogasukses.com">Dashboard</a>
+      <a href="https://monitor.semogasukses.com">Monitoring</a>
+      <a href="https://sso.semogasukses.com">SSO</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <h1>Infrastruktur yang <em>Aman, Terpantau</em>, dan Terpusat.</h1>
+    <p>Landing point arsitektur AISS UTS: WAF di depan, routing internal via Traefik, SSO Keycloak untuk akses aman, dan Grafana untuk pemantauan.</p>
+    <div class="badges">
+      <span class="badge">🛡️ SafeLine WAF</span>
+      <span class="badge">🔁 Traefik Router</span>
+      <span class="badge">🔑 Keycloak SSO</span>
+      <span class="badge">📊 Grafana</span>
+      <span class="badge">🐬 MariaDB</span>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card"><span class="ico">🛡️</span><h3>Web Application Firewall</h3><p>SafeLine mendeteksi dan memblokir serangan (SQLi, XSS, scanner, dll.) sebelum mencapai aplikasi.</p></div>
+    <div class="card"><span class="ico">🔁</span><h3>Traefik Router</h3><p>Routing berbasis label Docker ke tiap host aplikasi: landing, dashboard, monitoring, dan SSO.</p></div>
+    <div class="card"><span class="ico">🔑</span><h3>Single Sign-On</h3><p>Keycloak menyatukan login. Akses admin /grafana dibatasi whitelist jaringan manajemen.</p></div>
+    <div class="card"><span class="ico">📊</span><h3>Monitoring</h3><p>Grafana terhubung langsung ke MariaDB untuk visualisasi data kunjungan dan pengguna aplikasi.</p></div>
+  </section>
+
+  <div class="links">
+    <a class="btn primary" href="https://app.semogasukses.com">Buka Dashboard &rarr;</a>
+    <a class="btn" href="https://monitor.semogasukses.com">Grafana Monitoring</a>
+    <a class="btn" href="https://sso.semogasukses.com">Keycloak SSO</a>
+  </div>
+
+  <footer>AISS — Ujian Tengah Semester &middot; Nginx + PHP + MariaDB + Grafana + Keycloak + Traefik + SafeLine &middot; Docker Compose</footer>
+</div>
+</body>
+</html>

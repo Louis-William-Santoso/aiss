@@ -1,0 +1,7 @@
+# Jangan commit kredensial default
+.env
+
+# Data volume lokal (tidak digunakan, hanya jaga-jaga)
+db_data/
+grafana_data/
+*.log

@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: AISS
+    type: file
+    orgId: 1
+    folder: ''
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

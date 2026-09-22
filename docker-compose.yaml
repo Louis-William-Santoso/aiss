@@ -1,0 +1,250 @@
+networks:
+  aiss-net:
+    driver: bridge
+
+volumes:
+  mariadb-data:
+  grafana-data:
+  keycloak-data:
+  safeline-pg-data:
+  safeline-redis-data:
+  safeline-logs:
+  safeline-data:
+
+services:
+  # ============================================================
+  # 1. SAFELINE WAF (FRONTGATE & SECURITY)
+  # ============================================================
+
+  # A. Tengine (Reverse Proxy / WAF Engine yang berhadapan dengan User)
+  safeline-tengine:
+    image: chaitin/safeline-tengine:latest
+    container_name: safeline-tengine
+    ports:
+      - "${SAFELINE_WAN_IP:-10.10.10.10}:80:80"
+      - "${SAFELINE_WAN_IP:-10.10.10.10}:443:443"
+    volumes:
+      - safeline-data:/etc/nginx
+      - safeline-logs:/var/log/nginx
+    networks:
+      - aiss-net
+
+  # B. Management UI (Dashboard Safeline)
+  safeline-mgt:
+    image: chaitin/safeline-mgt:latest
+    container_name: safeline-mgt
+    ports:
+      - "${SAFELINE_MGMT_IP:-10.20.20.10}:9443:1443"
+    volumes:
+      - safeline-data:/safeline
+      - safeline-logs:/var/log/safeline
+    networks:
+      - aiss-net
+    depends_on:
+      - safeline-pg
+      - safeline-redis
+      - safeline-mgt-api
+
+  # C. Detector (Mesin Deteksi Ancaman WAF)
+  safeline-detector:
+    image: chaitin/safeline-detector:latest
+    container_name: safeline-detector
+    volumes:
+      - safeline-data:/safeline
+      - safeline-logs:/var/log/safeline
+    networks:
+      - aiss-net
+
+  # D. Mgt API, Database & Redis untuk Safeline
+  safeline-mgt-api:
+    image: chaitin/safeline-mgt-api:latest
+    container_name: safeline-mgt-api
+    networks:
+      - aiss-net
+    depends_on:
+      - safeline-pg
+      - safeline-redis
+
+  safeline-pg:
+    image: postgres:15.2
+    container_name: safeline-pg
+    environment:
+      POSTGRES_USER: ${SAFELINE_DB_USER:-safeline-ce}
+      POSTGRES_PASSWORD: ${SAFELINE_DB_PASS:-safeline-pass}
+    volumes:
+      - safeline-pg-data:/var/lib/postgresql/data
+    networks:
+      - aiss-net
+
+  safeline-redis:
+    image: redis:7.0
+    container_name: safeline-redis
+    volumes:
+      - safeline-redis-data:/data
+    networks:
+      - aiss-net
+
+  # ============================================================
+  # 2. TRAEFIK (ROUTER INTERNAL)
+  # ============================================================
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--entrypoints.web-app.address=:8080"
+      - "--entrypoints.web-mgmt.address=:80"
+      - "--api.dashboard=true"
+    ports:
+      - "${TRAEFIK_MGMT_IP:-10.20.20.10}:80:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - aiss-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASH_HOST:-10.20.20.10}`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=web-mgmt"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.middlewares.mgmt-whitelist.ipallowlist.sourcerange=${MGMT_SOURCERANGE:-10.30.30.0/24}"
+      - "traefik.http.routers.traefik-dashboard.middlewares=mgmt-whitelist"
+
+  # ============================================================
+  # 3. NGINX - LANDING PAGE & DASHBOARD PHP
+  # ============================================================
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    networks:
+      - aiss-net
+    depends_on:
+      - mariadb
+      - php
+    volumes:
+      - ./nginx/html:/usr/share/nginx/html:ro       # landing page statis (semogasukses.com)
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro         # server block landing + app dashboard
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.landing.rule=Host(`semogasukses.com`)"
+      - "traefik.http.routers.landing.entrypoints=web-app"
+      - "traefik.http.routers.landing.service=landing-service"
+      - "traefik.http.services.landing-service.loadbalancer.server.port=80"
+      # Dashboard PHP di host terpisah -> tetap dilayani nginx yang sama
+      - "traefik.http.routers.app.rule=Host(`app.semogasukses.com`)"
+      - "traefik.http.routers.app.entrypoints=web-app"
+      - "traefik.http.routers.app.service=landing-service"
+
+  # ============================================================
+  # 3b. PHP-FPM - DASHBOARD WEB (AISS UTS)
+  # ============================================================
+  php:
+    build:
+      context: ./php
+    container_name: php
+    restart: unless-stopped
+    networks:
+      - aiss-net
+    volumes:
+      - ./www:/var/www/html:rw
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: "${MARIADB_DATABASE:-website}"
+      DB_USER: "${MARIADB_USER:-website}"
+      DB_PASS: "${MARIADB_PASSWORD:-website_pass_2026}"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  # ============================================================
+  # 4. GRAFANA
+  # ============================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SERVER_ROOT_URL=https://monitor.semogasukses.com/
+      - GF_AUTH_GENERIC_OAUTH_ENABLED=true
+      - GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+      - GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_CLIENT_SECRET}
+      - GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email groups
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://sso.semogasukses.com/realms/${SSO_REALM:-master}/protocol/openid-connect/auth
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=http://keycloak:8080/realms/${SSO_REALM:-master}/protocol/openid-connect/token
+      - GF_AUTH_GENERIC_OAUTH_API_URL=https://sso.semogasukses.com/realms/${SSO_REALM:-master}/protocol/openid-connect/userinfo
+      # RBAC: grup "supervisor" -> Admin (semua), grup "user" -> Viewer (read-only)
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(groups[*], 'supervisor') && 'Admin' || contains(groups[*], 'user') && 'Viewer'
+      # Kredensial admin lokal (fallback bila SSO belum dikonfigurasi)
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      # Kredensial untuk provisioning data source MariaDB ($DB_NAME dst. di datasource.yml)
+      - DB_NAME=${MARIADB_DATABASE:-website}
+      - DB_USER=${MARIADB_USER:-website}
+      - DB_PASS=${MARIADB_PASSWORD:-website_pass_2026}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - aiss-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`monitor.semogasukses.com`)"
+      - "traefik.http.routers.grafana.entrypoints=web-app"
+      - "traefik.http.routers.grafana.service=grafana-service"
+      - "traefik.http.services.grafana-service.loadbalancer.server.port=3000"
+
+  # ============================================================
+  # 5. KEYCLOAK SSO
+  # ============================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: sso.semogasukses.com
+    networks:
+      - aiss-net
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`sso.semogasukses.com`)"
+      - "traefik.http.routers.keycloak.entrypoints=web-app, web-mgmt"
+      - "traefik.http.routers.keycloak.service=keycloak-service"
+      - "traefik.http.services.keycloak-service.loadbalancer.server.port=8080"
+      - "traefik.http.routers.keycloak-admin.rule=Host(`sso.semogasukses.com`) && PathPrefix(`/admin`)"
+      - "traefik.http.routers.keycloak-admin.entrypoints=web-mgmt"
+      - "traefik.http.routers.keycloak-admin.middlewares=mgmt-whitelist"
+      - "traefik.http.routers.keycloak-admin.priority=100"
+
+  # ============================================================
+  # 6. MARIADB
+  # ============================================================
+  mariadb:
+    image: mariadb:11
+    container_name: mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-website}
+      MARIADB_USER: ${MARIADB_USER:-website}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-website_pass_2026}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      - ./mariadb/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - aiss-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
