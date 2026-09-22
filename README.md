@@ -3,7 +3,7 @@
 Stack produksi-mini untuk UTS AISS dengan prinsip **Defense in Depth**:
 
 ```
-Internet ──▶ MikroTik (VLAN 10 & 20 + VPN WireGuard)
+Internet ──▶ MikroTik (VLAN 10 & 20 + VPN L2TP/IPSEC)
                 │  VLAN 10 (app)   : 10.10.10.0/24
                 │  VLAN 20 (mgmt)  : 10.20.20.0/24 (hanya via VPN Admin 10.30.30.0/24)
                 ▼
@@ -36,7 +36,7 @@ uts/
 ├── docker-compose.yaml          # 12 service
 ├── .env                         # kredensial, SSO realm, bind IP (tidak di-commit)
 ├── docs/
-│   ├── mikrotik.rsc             # skrip RouterOS: VLAN 10/20, WireGuard, firewall, DNAT, netplan Ubuntu
+│   ├── mikrotik.rsc             # skrip RouterOS: VLAN 10/20, L2TP/IPSEC, firewall, DNAT, netplan Ubuntu
 │   └── keycloak-setup.md        # panduan client "grafana", grup user/supervisor, klaim "groups"
 ├── nginx/
 │   ├── html/index.html          # landing page statis
@@ -52,7 +52,7 @@ uts/
 ## Persiapan
 
 1. **Salin & isi `.env`** — wajib ada: `GRAFANA_CLIENT_SECRET`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `MARIADB_*`. Sesuaikan IP bind (`SAFELINE_WAN_IP`, dst.) dengan server.
-2. **MikroTik**: ikuti `docs/mikrotik.rsc` (VLAN + WireGuard + firewall + DNAT). DNS publik mengarah ke WAN; gunakan /etc/hosts di PC untuk uji labor.
+2. **MikroTik**: ikuti `docs/mikrotik.rsc` (VLAN + L2TP/IPSEC + firewall + DNAT). DNS publik mengarah ke WAN; gunakan /etc/hosts di PC untuk uji labor.
 3. **Server Ubuntu**: pastikan VLAN tagging diterima (lihat contoh netplan di `docs/mikrotik.rsc`).
 4. **Keycloak**: selesaikan `docs/keycloak-setup.md` (client `grafana` + grup `user`/`supervisor` + mapper klaim `groups`).
 5. **SafeLine**: buat situs upstream menuju **`http://traefik:8080`** (internal network) — traefik entrypoint `web-app` menerima trafik dari WAF.
@@ -77,7 +77,7 @@ contains(groups[*], 'supervisor') && 'Admin' || contains(groups[*], 'user') && '
 
 ## Keamanan (Konteks AISS)
 
-- **Segmentasi jaringan**: VLAN 10 (app) terisolasi dari VLAN 20 (mgmt). Admin hanya lewat WireGuard (`10.30.30.0/24`) — firewall MikroTik *drop* semua jalur lain.
+- **Segmentasi jaringan**: VLAN 10 (app) terisolasi dari VLAN 20 (mgmt). Admin hanya lewat L2TP/IPSEC (`10.30.30.0/24`) — firewall MikroTik *drop* semua jalur lain.
 - **WAF di depan**: SafeLine memblokir serangan sebelum Traefik.
 - **Whitelist manajemen**: dashboard Traefik & `/admin` Keycloak hanya dari `MGMT_SOURCERANGE` (VLAN 20 + VPN) via entrypoint `web-mgmt`.
 - **DB internal**: MariaDB/Postgres tidak ter-expose ke host.
