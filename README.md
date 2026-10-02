@@ -1,4 +1,4 @@
-# AISS UTS — Arsitektur Web Terindependen (WAF + Traefik + Nginx + PHP + Grafana + Keycloak + MariaDB)
+# AISS UTS — Arsitektur Web Terindependen (WAF + Nginx + PHP + Grafana + Keycloak + MariaDB)
 
 Stack produksi-mini untuk UTS AISS dengan prinsip **Defense in Depth**:
 
@@ -61,7 +61,6 @@ uts/
 2. **MikroTik**: ikuti `docs/mikrotik.rsc` (VLAN + L2TP/IPSEC + firewall + DNAT). DNS publik mengarah ke WAN; gunakan /etc/hosts di PC untuk uji labor.
 3. **Server Ubuntu**: pastikan VLAN tagging diterima (lihat contoh netplan di `docs/mikrotik.rsc`).
 4. **Keycloak**: selesaikan `docs/keycloak-setup.md` (client `grafana` + grup `user`/`supervisor` + mapper klaim `groups`).
-5. **SafeLine**: buat situs upstream menuju **`http://traefik:8080`** (internal network) — traefik entrypoint `web-app` menerima trafik dari WAF.
 
 ## Menjalankan
 
@@ -84,35 +83,11 @@ contains(groups[*], 'supervisor') && 'Admin' || contains(groups[*], 'user') && '
 ## Keamanan (Konteks AISS)
 
 - **Segmentasi jaringan**: VLAN 10 (app) terisolasi dari VLAN 20 (mgmt). Admin hanya lewat L2TP/IPSEC (`10.30.30.0/24`) — firewall MikroTik *drop* semua jalur lain.
-- **WAF di depan**: SafeLine memblokir serangan sebelum Traefik.
-- **Whitelist manajemen**: dashboard Traefik & `/admin` Keycloak hanya dari `MGMT_SOURCERANGE` (VLAN 20 + VPN) via entrypoint `web-mgmt`.
+- **WAF di depan**: SafeLine memblokir serangan sebelum app.
+- **Whitelist manajemen**: `/admin` Keycloak hanya dari `MGMT_SOURCERANGE` (VLAN 20 + VPN) via entrypoint `web-mgmt`.
 - **DB internal**: MariaDB/Postgres tidak ter-expose ke host.
 - **RBAC SSO**: Grafana read-only untuk grup `user`, admin untuk `supervisor`.
 - Header keamanan dasar nginx (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
-
-## Verifikasi Cepat
-
-```bash
-# Landing (produk dari DB) & dashboard (lewat traefik dengan header Host)
-curl -H "Host: semogasukses.com" http://10.20.20.10/ | head -40
-curl -H "Host: semogasukses.com" http://10.20.20.10/dashboard | head -20
-curl -H "Host: semogasukses.com" http://10.20.20.10/api/stats.php
-
-# DB seed (users, page_visits, products)
-docker compose exec mariadb mariadb -uwebsite -p website -e "SELECT * FROM products;"
-
-# Log
-docker compose logs -f grafana keycloak php
-```
-
-## Troubleshooting
-
-- **WAF gagal bind IP** → pastikan IP VLAN ada di interface Ubuntu.
-- **Grafana tidak bisa login SSO** → cek `GRAFANA_CLIENT_SECRET` & follow `docs/keycloak-setup.md`.
-- **Role selalu Viewer** → klaim `groups` tidak ter-inject; cek mapper (langkah 4 di docs).
-- **Dashboard "DB: MENUNGGU"** → php menunggu healthcheck MariaDB; `docker compose logs mariadb`.
-- **Init SQL tidak jalan** → seed hanya saat volume DB baru. Reset: `docker compose down -v`.
-- **Keycloak redirect loop** → pastikan `KC_PROXY_HEADERS=xforwarded` dan `X-Forwarded-Proto` diteruskan SafeLine/traefik (HTTPS di depan).
 
 ## Roadmap (opsional, sesuai prompt)
 
