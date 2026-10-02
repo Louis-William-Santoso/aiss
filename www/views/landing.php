@@ -80,20 +80,16 @@ function format_price(mixed $price): string
   <nav class="nav">
     <div class="logo">🛡️ Semoga<span>Sukses</span>.com</div>
     <div>
-      <span class="badge-db <?= $db !== null ? 'ok' : '' ?>"><?= $db !== null ? 'DB: OK' : 'DB: MENUNGGU' ?></span>
       <a href="/">Beranda</a>
-      <a href="/dashboard">Dashboard</a>
       <a href="https://monitor.semogasukses.com">Monitoring</a>
-      <a href="https://sso.semogasukses.com">SSO</a>
     </div>
   </nav>
 
   <section class="hero">
     <h1>Keamanan Digital yang <em>Terjaga</em> &amp; Terpantau.</h1>
-    <p>Landing point arsitektur AISS UTS: SafeLine WAF di depan, Traefik sebagai router, Keycloak untuk SSO, dan Grafana untuk monitoring — semua data katalog di bawah disimpan dan ditampilkan langsung dari MariaDB.</p>
+    <p>Landing point arsitektur AISS UTS: SafeLine WAF di depan, Keycloak untuk SSO, dan Grafana untuk monitoring — semua data katalog di bawah disimpan dan ditampilkan langsung dari MariaDB.</p>
     <div class="links">
-      <a class="btn primary" href="/dashboard">Buka Dashboard &rarr;</a>
-      <a class="btn" href="https://monitor.semogasukses.com">Grafana Monitoring</a>
+      <a class="btn primary" href="https://monitor.semogasukses.com">Grafana Monitoring</a>
     </div>
   </section>
 
@@ -118,8 +114,6 @@ function format_price(mixed $price): string
     <?php endforeach; ?>
   </section>
   <?php endif; ?>
-
-  <footer>AISS — Ujian Tengah Semester &middot; Nginx + PHP + MariaDB + Grafana + Keycloak + Traefik + SafeLine &middot; Docker Compose</footer>
 </div>
 </body>
 </html>

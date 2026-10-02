@@ -2,13 +2,14 @@
 -- Dijalankan otomatis HANYA saat volume database pertama kali dibuat.
 -- (Reset: docker compose down -v)
 
-USE website;
+USE semogasukses_db;
 
 CREATE TABLE IF NOT EXISTS users (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
   role VARCHAR(50) NOT NULL DEFAULT 'user',
+  password TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -20,12 +21,12 @@ CREATE TABLE IF NOT EXISTS page_visits (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data contoh pengguna
-INSERT INTO users (name, email, role) VALUES
-  ('Andi Pratama',  'andi.pratama@example.com',  'admin'),
-  ('Budi Santoso',  'budi.santoso@example.com',  'analyst'),
-  ('Citra Dewi',    'citra.dewi@example.com',    'user'),
-  ('Dewi Lestari',  'dewi.lestari@example.com',  'user'),
-  ('Eko Nugroho',   'eko.nugroho@example.com',   'user');
+INSERT INTO users (name, email, role, password) VALUES
+  ('Andi Pratama',  'andi.pratama@example.com',  'admin', SHA2(CONCAT('admin123', 'super_secure_salt'), 256)),
+  ('Budi Santoso',  'budi.santoso@example.com',  'analyst', SHA2(CONCAT('budi123', 'super_secure_salt'), 256)),
+  ('Citra Dewi',    'citra.dewi@example.com',    'user', SHA2(CONCAT('citra123', 'super_secure_salt'), 256)),
+  ('Dewi Lestari',  'dewi.lestari@example.com',  'user', SHA2(CONCAT('dewi123', 'super_secure_salt'), 256)),
+  ('Eko Nugroho',   'eko.nugroho@example.com',   'user', SHA2(CONCAT('eko123', 'super_secure_salt'), 256));
 
 -- Data kunjungan contoh (tersebar 6 jam terakhir agar grafik Grafana langsung terisi)
 INSERT INTO page_visits (page, visited_at) VALUES

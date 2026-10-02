@@ -17,9 +17,9 @@ final class DB
 {
     public const HOST = 'mariadb';
     public const PORT = 3306;
-    public const NAME = 'website';
-    public const USER = 'website';
-    public const PASS = 'website_pass_2026';
+    public const NAME = 'semogasukses_db';
+    public const USER = 'semogasukses_user';
+    public const PASS = 'UserSecretPass123!';
 
     private static ?PDO $pdo = null;
 
@@ -66,4 +66,12 @@ function json_response(array $data, int $status = 200): never
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function apply_security_headers(): void
+{
+    header('X-Frame-Options: DENY');
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';");
 }

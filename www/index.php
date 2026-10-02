@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/config.php';
 
+apply_security_headers();
+
 // Catat kunjungan halaman (untuk analytics di Grafana).
 $db = DB::tryConn();
 if ($db !== null) {
@@ -21,8 +23,4 @@ $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $path = rtrim($path, '/');
 $path = $path === '' ? '/' : $path;
 
-if ($path === '/dashboard') {
-    require __DIR__ . '/views/dashboard.php';
-} else {
-    require __DIR__ . '/views/landing.php';
-}
+require __DIR__ . '/views/landing.php';
