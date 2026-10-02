@@ -1,0 +1,310 @@
+networks:
+  aiss-net:
+    name: aiss-net
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+
+volumes:
+  mariadb-data:
+  grafana-data:
+  keycloak-data:
+  safeline-pg-data:
+  safeline-mgt-data:
+  safeline-nginx:
+  safeline-detector-data:
+  safeline-detector-logs:
+  safeline-luigi-data:
+  safeline-cache:
+  safeline-sock:
+  safeline-chaos:
+  safeline-logs:
+
+services:
+
+  # pg = Postgres untuk safeline database
+  safeline-pg:
+    image: chaitin/safeline-postgres:15.2
+    container_name: safeline-pg
+    restart: always
+    environment:
+      - POSTGRES_USER=safeline-ce
+      - POSTGRES_PASSWORD=${SAFELINE_DB_PASS}
+      - POSTGRES_DB=safeline-ce
+    volumes:
+      - safeline-pg-data:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
+    command: [postgres, -c, max_connections=600]
+    healthcheck:
+      test: pg_isready -U safeline-ce -d safeline-ce
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.2
+
+  # Tengine = reverse proxy untuk safeline
+  safeline-tengine:
+    image: chaitin/safeline-tengine-g:${IMAGE_TAG}
+    container_name: safeline-tengine
+    restart: always
+    ports:
+      - "${SAFELINE_WAN_IP}:80:80"
+      - "${SAFELINE_WAN_IP}:443:443"
+    environment:
+      - TCD_MGT_API=http://172.30.0.4:1443/api/open/publish/server
+      - TCD_SNSERVER=172.30.0.5:8000
+      - SNSERVER_ADDR=172.30.0.5:8000
+      - CHAOS_ADDR=172.30.0.10
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/resolv.conf:/etc/resolv.conf:ro
+      - safeline-nginx:/etc/nginx
+      - safeline-detector-data:/resources/detector
+      - safeline-chaos:/resources/chaos
+      - safeline-logs:/var/log/nginx
+      - safeline-cache:/usr/local/nginx/cache
+      - safeline-sock:/app/sock
+    ulimits:
+      nofile: 131072
+    depends_on:
+      safeline-mgt:
+        condition: service_started
+      safeline-detector:
+        condition: service_started
+      safeline-chaos:
+        condition: service_started
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.3
+
+  # mgt = Management dashboard safeline
+  safeline-mgt:
+    image: chaitin/safeline-mgt-g:${IMAGE_TAG}
+    container_name: safeline-mgt
+    restart: always
+    ports:
+      - "${SAFELINE_MGMT_IP}:9445:1443"
+    environment:
+      - MGT_PG=postgres://safeline-ce:${SAFELINE_DB_PASS}@172.30.0.2/safeline-ce?sslmode=disable
+      - MGT_PROXY=${MGT_PROXY:-}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - safeline-mgt-data:/app/data
+      - safeline-logs:/app/log/nginx
+      - safeline-sock:/app/sock
+      - /var/run:/app/run
+    healthcheck:
+      test: curl -k -f https://localhost:1443/api/open/health
+    depends_on:
+      safeline-pg:
+        condition: service_healthy
+      safeline-fvm:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.4
+
+  # detector: untuk analisis dan threat-inspection
+  safeline-detector:
+    image: chaitin/safeline-detector-g:${IMAGE_TAG}
+    container_name: safeline-detector
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - safeline-detector-data:/resources/detector
+      - safeline-detector-logs:/logs/detector
+    environment:
+      - LOG_DIR=/logs/detector
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.5
+  
+  # luigi: background log processing dan data management
+  safeline-luigi:
+    image: chaitin/safeline-luigi-g:${IMAGE_TAG}
+    container_name: safeline-luigi
+    restart: always
+    environment:
+      - MGT_IP=172.30.0.4
+      - LUIGI_PG=postgres://safeline-ce:${SAFELINE_DB_PASS}@172.30.0.2/safeline-ce?sslmode=disable
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - safeline-luigi-data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    depends_on:
+      safeline-detector:
+        condition: service_started
+      safeline-mgt:
+        condition: service_healthy
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.7
+
+  # fvm: Version management dan runtime supports
+  safeline-fvm:
+    image: chaitin/safeline-fvm-g:${IMAGE_TAG}
+    container_name: safeline-fvm
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.8
+  
+  # chaos: menangani security, captchas, dan waiting room features
+  safeline-chaos:
+    image: chaitin/safeline-chaos-g:${IMAGE_TAG}
+    container_name: safeline-chaos
+    restart: always
+    environment:
+      DB_ADDR: postgres://safeline-ce:${SAFELINE_DB_PASS}@172.30.0.2/safeline-ce?sslmode=disable
+    volumes:
+      - safeline-sock:/app/sock
+      - safeline-chaos:/app/chaos
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    depends_on:
+      safeline-pg:
+        condition: service_healthy
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.10
+
+  # NGINX Service
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.21
+    depends_on:
+      php:
+        condition: service_started
+      mariadb:
+        condition: service_healthy
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./www:/var/www/html:ro
+  
+  # PHP
+  php:
+    build:
+      context: ./php
+    container_name: php
+    restart: unless-stopped
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.22
+    volumes:
+      - ./www:/var/www/html:rw
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: "${MARIADB_DATABASE}"
+      DB_USER: "${MARIADB_USER}"
+      DB_PASS: "${MARIADB_PASSWORD}"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  # MARIADB
+  mariadb:
+    image: mariadb:11
+    container_name: mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
+      MARIADB_DATABASE: "${MARIADB_DATABASE}"
+      MARIADB_USER: "${MARIADB_USER}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      - ./mariadb/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.25
+    healthcheck:
+      test:
+        - CMD
+        - healthcheck.sh
+        - --connect
+        - --innodb_initialized
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  
+  # GRAFANA
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: "${MARIADB_DATABASE}"
+      MARIADB_USER: "${MARIADB_USER}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
+      GF_SERVER_ROOT_URL: "https://monitor.${DOMAIN}/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Keycloak"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "${GRAFANA_CLIENT_SECRET}"
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email roles"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://sso.${DOMAIN}/realms/${SSO_REALM}/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://172.30.0.24:8080/realms/${SSO_REALM}/protocol/openid-connect/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://172.30.0.24:8080/realms/${SSO_REALM}/protocol/openid-connect/userinfo"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(realm_access.roles[*], 'supervisor') && 'Editor' || contains(realm_access.roles[*], 'user') && 'Viewer'"
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.23
+  
+  # KEYCLOAK
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    restart: unless-stopped
+    command:
+      - start-dev
+    ports:
+      # Ekspos port HANYA di Management IP (VLAN 20) untuk Admin Konsol Keycloak
+      - "${SAFELINE_MGMT_IP}:8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN}"
+      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+      KC_PROXY_HEADERS: "xforwarded"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_URL: "sso.${DOMAIN}"
+      # Paksa URL Admin masuk melalui IP management VLAN
+      KC_HOSTNAME_ADMIN_URL: "http://${SAFELINE_MGMT_IP}:8080"
+    networks:
+      aiss-net:
+        ipv4_address: 172.30.0.24
+    volumes:
+      - keycloak-data:/opt/keycloak/data
