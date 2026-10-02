@@ -7,7 +7,7 @@ Internet ──▶ MikroTik (VLAN 10 & 20 + VPN L2TP/IPSEC)
                 │  VLAN 10 (app)   : 10.10.10.0/24
                 │  VLAN 20 (mgmt)  : 10.20.20.0/24 (hanya via VPN Admin 10.30.30.0/24)
                 ▼
-        SafeLine WAF ──▶ Traefik ──▶ container apps
+        SafeLine WAF  ──▶ container apps
    (10.10.10.10:80/443)   (routing per-host)
                               ├─ semogasukses.com      → Nginx → PHP → landing (produk dari MariaDB)
                               │                              └─ /dashboard (statistik + CRUD)
@@ -22,7 +22,6 @@ Internet ──▶ MikroTik (VLAN 10 & 20 + VPN L2TP/IPSEC)
 | SafeLine Tengine | `chaitin/safeline-tengine` | `10.10.10.10:80/443` | Frontgate WAF |
 | SafeLine Mgt UI | `chaitin/safeline-mgt` | `10.20.20.10:9443` | Management WAF (VLAN 20/VPN) |
 | SafeLine Detector/API/PG/Redis | `chaitin/*`, `postgres`, `redis` | internal | Mesin deteksi |
-| Traefik | `traefik:v2.10` | `10.20.20.10:80` | Router + dashboard (mgmt whitelist) |
 | Nginx | `nginx:alpine` | internal | `semogasukses.com` → PHP (landing `/` + dashboard `/dashboard`) |
 | PHP-FPM | `php:8.4-fpm-alpine` | internal | Dashboard PHP |
 | Grafana | `grafana/grafana` | internal | `monitor.semogasukses.com` |
