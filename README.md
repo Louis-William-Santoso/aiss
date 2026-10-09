@@ -77,7 +77,8 @@ uts/
 ├── .env                    # Kredensial, penentuan nama realm (uts_aiss), dan IP bind
 ├── docs/
 │   ├── mikrotik.rsc        # Konfigurasi pembentukan VLAN, L2TP/IPSEC, pembatasan port firewall, dan mitigasi ICMP
-│   └── keycloak-setup.md   # Setup client "grafana", perincian grup user, dan mapper klaim
+│   ├── keycloak-setup.md   # Setup client "grafana", perincian grup user, dan mapper klaim
+│   └── LogAI    # History penggunaan AI
 ├── nginx/
 │   └── conf.d/00-site.conf # Header keamanan dan filter regex blokir direktori file tersembunyi
 ├── www/                    # Direktori kode sumber situs web
