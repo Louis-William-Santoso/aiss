@@ -1,95 +1,97 @@
 # AISS UTS — Arsitektur Web Terindependen (WAF + Nginx + PHP + Grafana + Keycloak + MariaDB)
 
-Stack produksi-mini untuk UTS AISS dengan prinsip **Defense in Depth**:
+Stack produksi-mini untuk UTS AISS dengan mengimplementasikan prinsip keamanan **Defense in Depth** secara komprehensif dari tingkat jaringan hingga aplikasi.
 
-```
-Internet ──▶ MikroTik (VLAN 10 & 20 + VPN L2TP/IPSEC)
-                │  VLAN 10 (app)   : 10.10.10.0/24
-                │  VLAN 20 (mgmt)  : 10.20.20.0/24 (hanya via VPN Admin 10.30.30.0/24)
+## Topologi & Arsitektur
+
+Arsitektur sistem dibangun di atas Ubuntu Server dengan menggunakan jaringan MikroTik sebagai gerbang utama.
+
+```text
+Internet ──▶ MikroTik Router (Firewall, Port Forwarding, VPN L2TP/IPSEC)
+                │   VLAN 10 (APP)   : 10.10.10.0/24 (Akses Publik via Port 80 & 443)
+                │   VLAN 20 (MGMT)  : 10.20.20.0/24 (Manajemen Terisolasi)
+                │   VPN Admin       : 10.30.30.0/24 (Satu-satunya jalur ke VLAN 20)
                 ▼
-        SafeLine WAF  ──▶ container apps
-   (10.10.10.10:80/443)   (routing per-host)
-                              ├─ semogasukses.com      → Nginx → PHP → landing (produk dari MariaDB)
-                              │                              └─ /dashboard (statistik + CRUD)
-                              ├─ monitor.semogasukses.com → Grafana (SSO Keycloak) → MariaDB
-                              └─ sso.semogasukses.com   → Keycloak (login + RBAC)
+        Ubuntu Server (Host Firewall dengan nftables)
+                ▼
+        Docker Bridge: aiss-net (172.30.0.0/24)
+                │
+        SafeLine WAF Stack ──▶ Application Stack (Nginx, PHP, Grafana, Keycloak, MariaDB)
 ```
 
-## Layanan & Akses
+## Lapisan Keamanan (Defense in Depth)
 
-| Layanan | Image | Bind | Akses |
-|---|---|---|---|
-| SafeLine Tengine | `chaitin/safeline-tengine` | `10.10.10.10:80/443` | Frontgate WAF |
-| SafeLine Mgt UI | `chaitin/safeline-mgt` | `10.20.20.10:9443` | Management WAF (VLAN 20/VPN) |
-| SafeLine Detector/API/PG/Redis | `chaitin/*`, `postgres`, `redis` | internal | Mesin deteksi |
-| Nginx | `nginx:alpine` | internal | `semogasukses.com` → PHP (landing `/` + dashboard `/dashboard`) |
-| PHP-FPM | `php:8.4-fpm-alpine` | internal | Dashboard PHP |
-| Grafana | `grafana/grafana` | internal | `monitor.semogasukses.com` |
-| Keycloak | `quay.io/keycloak` | internal | `sso.semogasukses.com` |
-| MariaDB | `mariadb:11` | internal | DB `website` |
+Sistem ini menggunakan strategi keamanan berlapis yang terdiri dari:
+
+### 1. Perimeter & Network Security (MikroTik)
+* Firewall MikroTik memblokir seluruh trafik dari publik yang menuju ke VLAN Management.
+* Akses manajemen jaringan hanya dapat dilakukan oleh user terdaftar menggunakan VPN L2TP/IPSEC.
+* Terdapat *rule* pendeteksi *Port Scanner* yang memasukkan alamat IP penyerang ke dalam *blacklist* secara otomatis.
+* Mitigasi serangan *ICMP Flood* dilakukan menggunakan *rate limiting* dengan batas 5 paket per detik dan *burst* 5 paket.
+* Servis bawaan MikroTik yang tidak diperlukan (seperti telnet, ftp, www, ssh, dan api) dinonaktifkan untuk meminimalkan celah keamanan.
+
+### 2. Host Security (Ubuntu nftables)
+* Konfigurasi nftables membatasi pengiriman *ICMP echo-request* maksimal 18 paket per menit dengan *burst* 5 paket.
+* Akses ke *port* manajemen Keycloak (8080) dan Safeline (9445) dibatasi secara ketat hanya untuk *traffic* yang berasal dari IP VPN (10.30.30.0/24).
+* Protokol SSH (*port* 22) pada Ubuntu server hanya dapat diakses melalui jaringan VPN.
+
+### 3. Web Application Firewall (SafeLine)
+* SafeLine bertindak sebagai lapisan deteksi serangan yang terintegrasi dengan AI untuk menganalisis dan memblokir muatan berbahaya, seperti *SQL Injection*.
+* WAF difungsikan sebagai *reverse proxy* yang memaksa pengalihan seluruh *traffic* HTTP (*port* 80) menuju HTTPS (*port* 443) yang lebih aman.
+* Keamanan komunikasi data dijamin dengan penggunaan *Root CA* kustom beserta sertifikat server terkait.
+
+### 4. Application Security (NGINX)
+* Konfigurasi NGINX dilengkapi dengan pengaturan *header* keamanan meliputi `X-Content-Type-Options nosniff`, `X-Frame-Options SAMEORIGIN`, serta `Referrer-Policy strict-origin-when-cross-origin`.
+* NGINX diatur agar menolak seluruh permintaan akses menuju *file* tersembunyi.
+
+### 5. Identity & Database Security (Keycloak & MariaDB)
+* MariaDB tidak menyimpan kata sandi pengguna dalam teks biasa, melainkan menggunakan metode *hashing* SHA256 ditambah *Salt*.
+* Keycloak mengamankan sistem autentikasi SSO dengan mewajibkan pengaturan kata sandi OTP (One-Time Password) melalui aplikasi autentikator.
+* Fitur deteksi *Brute Force* aktif di Keycloak yang akan mengunci akun secara sementara apabila pengguna gagal *login* sebanyak 5 kali.
+* Sistem otorisasi SSO menerapkan *Role-Based Access Control* (RBAC), yaitu penetapan peran 'supervisor' dengan akses *read* dan *write*, serta peran 'user' dengan hak *read-only*.
+
+## Layanan & Akses Container
+
+Terdapat total 12 *container* yang terbagi menjadi grup layanan *microservice* WAF dan grup layanan *web/app*.
+
+| Layanan | Keterangan | Bind Akses |
+|---|---|---|
+| **safeline-tengine** | *Reverse proxy service* (Frontgate WAF). | `10.10.10.10:80/443` |
+| **safeline-mgt** | *Management dashboard* dari Safeline. | `10.20.20.10:9445` (Akses VPN) |
+| **safeline-pg** | *Postgres service* untuk database sistem WAF. | Internal |
+| **safeline-detector** | Modul analisis Safeline untuk *threat detection*. | Internal |
+| **safeline-luigi** | Modul untuk *background log processing* dan manajemen data. | Internal |
+| **safeline-fvm** | *Service* untuk *version management* dan dukungan *runtime*. | Internal |
+| **safeline-chaos** | Menangani fitur pelindung, *captcha*, dan *waiting room*. | Internal |
+| **nginx** | Menghosting *landing page* atau halaman utama situs. | Internal (Di belakang proksi) |
+| **php** | Menyediakan dukungan skrip backend untuk NGINX. | Internal |
+| **mariadb** | Database *backend* pendukung dasbor aplikasi utama. | Internal |
+| **grafana** | Visualisasi dan *monitoring* sistem internal aplikasi. | `monitor.semogasukses.com` |
+| **keycloak** | Mengatur *Single Sign-On* dan manajemen otentikasi sentral. | Dasbor Manajemen: `10.20.20.10:8080` |
 
 ## Struktur Proyek
 
-```
+```text
 uts/
-├── docker-compose.yaml          # 12 service
-├── .env                         # kredensial, SSO realm, bind IP (tidak di-commit)
+├── docker-compose.yaml     # Orkestrasi jaringan (mendefinisikan 12 service Safeline dan Apps).
+├── .env                    # Kredensial, penentuan nama realm (uts_aiss), dan IP bind
 ├── docs/
-│   ├── mikrotik.rsc             # skrip RouterOS: VLAN 10/20, L2TP/IPSEC, firewall, DNAT, netplan Ubuntu
-│   └── keycloak-setup.md        # panduan client "grafana", grup user/supervisor, klaim "groups"
+│   ├── mikrotik.rsc        # Konfigurasi pembentukan VLAN, L2TP/IPSEC, pembatasan port firewall, dan mitigasi ICMP
+│   └── keycloak-setup.md   # Setup client "grafana", perincian grup user, dan mapper klaim
 ├── nginx/
-│   └── conf.d/00-site.conf       # 1 server block semogasukses.com (landing + dashboard)
-├── php/Dockerfile               # php:8.4-fpm-alpine + pdo_mysql
-├── www/                         # kode PHP
-│   ├── index.php                # front-controller router ("/" → landing, "/dashboard" → dashboard)
-│   ├── config.php               # koneksi PDO — baca env DB_*
-│   ├── system_stats.php         # metrik CPU/mem/disk/uptime host
-│   ├── views/
-│   │   ├── landing.php          # landing page: katalog produk/solusi dari tabel products
-│   │   └── dashboard.php        # dashboard: statistik sistem + CRUD users + kunjungan
-│   ├── api/                     # stats.php, visits.php, users.php
-│   └── assets/                  # style.css, app.js
-├── mariadb/init/01-init.sql     # skema db website + seed (users, page_visits, products) — jalan sekali
-└── grafana/
-    ├── provisioning/            # data source MariaDB + provider dashboard
-    └── dashboards/monitoring.json
+│   └── conf.d/00-site.conf # Header keamanan dan filter regex blokir direktori file tersembunyi
+├── www/                    # Direktori kode sumber situs web
+├── mariadb/
+│   └── init/01-init.sql    # Simulasi penyemaian (seeding) database menggunakan SHA256+Salt
+└── grafana/                # Datasource provision dan tautan masuk Keycloak
 ```
 
-## Persiapan
+## Persiapan & Pengujian Sistem
 
-1. **Salin & isi `.env`** — wajib ada: `GRAFANA_CLIENT_SECRET`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `MARIADB_*`. Sesuaikan IP bind (`SAFELINE_WAN_IP`, dst.) dengan server.
-2. **MikroTik**: ikuti `docs/mikrotik.rsc` (VLAN + L2TP/IPSEC + firewall + DNAT). DNS publik mengarah ke WAN; gunakan /etc/hosts di PC untuk uji labor.
-3. **Server Ubuntu**: pastikan VLAN tagging diterima (lihat contoh netplan di `docs/mikrotik.rsc`).
-4. **Keycloak**: selesaikan `docs/keycloak-setup.md` (client `grafana` + grup `user`/`supervisor` + mapper klaim `groups`).
-
-## Menjalankan
-
-```bash
-docker compose up -d --build
-docker compose ps
-```
-
-> Docker posts bind hanya ke IP spesifik sesuai `.env`. Di lab tanpa IP tersebut, set ke `127.0.0.1` untuk uji lokal (jaringan mikro-segmentasi tidak berlaku dalam uji tersebut).
-
-## RBAC Grafana (SSO)
-
-`GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH`:
-```
-contains(groups[*], 'supervisor') && 'Admin' || contains(groups[*], 'user') && 'Viewer'
-```
-- `supervisor` → **Admin** (semua akses)
-- `user` → **Viewer** (read-only)
-
-## Keamanan (Konteks AISS)
-
-- **Segmentasi jaringan**: VLAN 10 (app) terisolasi dari VLAN 20 (mgmt). Admin hanya lewat L2TP/IPSEC (`10.30.30.0/24`) — firewall MikroTik *drop* semua jalur lain.
-- **WAF di depan**: SafeLine memblokir serangan sebelum app.
-- **Whitelist manajemen**: `/admin` Keycloak hanya dari `MGMT_SOURCERANGE` (VLAN 20 + VPN) via entrypoint `web-mgmt`.
-- **DB internal**: MariaDB/Postgres tidak ter-expose ke host.
-- **RBAC SSO**: Grafana read-only untuk grup `user`, admin untuk `supervisor`.
-- Header keamanan dasar nginx (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
-
-## Roadmap (opsional, sesuai prompt)
-
-- ✅ **Katalog produk di landing**: tabel `products` (kategori product/solution + harga) di MariaDB, ditampilkan di `/` oleh PHP (lihat `mariadb/init/01-init.sql` & `www/views/landing.php`).
-- Opsional: CRUD produk via dashboard PHP.
+1. **Konfigurasi MikroTik & VPN**: Aktifkan skrip di `docs/mikrotik.rsc` untuk melakukan *setup* antarmuka, *Pool DHCP*, dan aturan pemfilteran berbasis peran. Sambungkan profil VPN (contoh: user louis) via L2TP/IPSEC pada perangkat lokal Anda.
+2. **Peluncuran Container**: Eksekusi perintah pembentukan arsitektur kontainer *docker* di terminal server pusat:
+   ```bash
+   docker compose up -d
+   ```
+3. **Pemberdayaan Safeline**: Atur ulang sandi administratif WAF menggunakan baris kode: `docker exec safeline-mgt resetadmin`. Di dalam dasbor Safeline, ikat kode sandi OTP, tambahkan sertifikat server dan *Root CA*, lalu berlakukan *reverse proxy* lintas gerbang HTTP (*Port* 80) ke HTTPS (*Port* 443).
+4. **Pemberdayaan Role Keycloak**: Buka *dashboard* manajemen Keycloak di port `8080` via jalur VPN. Setelah meresmikan *realm* `uts_aiss` yang memuat fitur deteksi *Brute Force*, buatlah dan petakan identitas akun baru ke ranah 'supervisor' dan 'user' dan hubungkan bersama kewajiban autentikator pihak ketiga.
