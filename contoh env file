@@ -1,0 +1,38 @@
+# IP VLAN 10 Safeline
+SAFELINE_WAN_IP=10.10.10.10
+
+# IP VLAN 20 untuk management safeline dan 
+SAFELINE_MGMT_IP=10.20.20.10
+KEYCLOAK_MGMT_IP=10.20.20.10
+
+# IP VPN user yang boleh mengakses VLAN 20
+MGMT_SOURCERANGE=10.30.30.0/24
+
+# Domain utama aplikasi
+DOMAIN=semogasukses.com
+
+# Kredensial untuk Safeline Postgres
+SAFELINE_DB_PASS=
+
+# Kredensial untuk database mariadb
+MARIADB_ROOT_PASSWORD=
+MARIADB_DATABASE=
+MARIADB_USER=
+MARIADB_PASSWORD=
+
+# Kredensial grafana
+GRAFANA_ADMIN_USER=
+GRAFANA_ADMIN_PASSWORD=
+
+# Kredensial grafana untuk oauth dengan keycloak
+GRAFANA_CLIENT_SECRET=
+
+# Kredensial keycloak untuk akses management
+KEYCLOAK_ADMIN=
+KEYCLOAK_ADMIN_PASSWORD=
+
+# Realm keycloak yang akan digunakan untuk integrasi dengan grafana
+SSO_REALM=uts_aiss
+
+# Versi Safeline
+IMAGE_TAG=9.4.1
