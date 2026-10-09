@@ -1,112 +1,84 @@
-# ============================================================
-# AISS UTS — Skrip MikroTik (RouterOS v7)
-# Segmentasi VLAN + WireGuard VPN Admin + Firewall
-# ============================================================
-# ADAPTASI YANG PERLU KAMU SESUAIKAN:
-#   - Nama bridge/interfaces LAN & WAN (contoh: bridge1, ether1)
-#   - Subnet yang dipakai (default sesuai .env: 10.10.10.0/24 app,
-#     10.20.20.0/24 mgmt, 10.30.30.0/24 VPN)
+# jan/02/1970 12:26:54 by RouterOS 6.48.6
+# software id = 3IHU-Q6JW
 #
-# Topologi:
-#   Internet ── ether1 (WAN)
-#                ├─ VLAN 10 (app)     : 10.10.10.0/24  → SafeLine WAF di 10.10.10.10
-#                └─ VLAN 20 (mgmt)    : 10.20.20.0/24  → Traefik/SafeLine/Keycloak 10.20.20.10
-#   VPN Admin (WireGuard wg1)         : 10.30.30.0/24  → satu-satunya jalur ke VLAN 20 dari luar
-
-# ------------------------------------------------------------
-# 1. VLAN & ALAMAT IP
-# ------------------------------------------------------------
-/interface vlan add name=vlan10-app vlan-id=10 interface=bridge1
-/interface vlan add name=vlan20-mgmt vlan-id=20 interface=bridge1
-
-/ip address add address=10.10.10.1/24  interface=vlan10-app comment="Gateway App"
-/ip address add address=10.20.20.1/24  interface=vlan20-mgmt comment="Gateway Management"
-
-# IP gateway pada server Ubuntu (Docker bind IP ini):
-#   VLAN 10 -> 10.10.10.10/24 (WAF / safeline-tengine)
-#   VLAN 20 -> 10.20.20.10/24 (Traefik mgmt, SafeLine mgt, dsb)
-
-# ------------------------------------------------------------
-# 2. WIREGUARD VPN ADMIN
-# ------------------------------------------------------------
-# Generate keypair admin: /interface wireguard peers print / secret
-# (atau gunakan tools.generate-wireguard-key di Winbox / via /interface wireguard)
-/interface wireguard add name=wg1 listen-port=13231
-
-# Tambahkan IP tunnel untuk server WireGuard (MikroTik)
-/ip address add address=10.30.30.1/24 interface=wg1
-
-# Peer: laptop/HP admin — ganti PUBLIC_KEY dan allowed-address
-# /interface wireguard peers add interface=wg1 \
-#   public-key="<PUBLIC_KEY_ADMIN>" \
-#   allowed-address=10.30.30.2/32
-
-# ------------------------------------------------------------
-# 3. FIREWALL (Filter Rules)
-# ------------------------------------------------------------
+# model = RB952Ui-5ac2nD
+# serial number = HE408PF9PFT
+/interface bridge
+add name=LAN
+add name=WAN
+/interface wireless
+set [ find default-name=wlan2 ] ssid=MikroTik
+/interface vlan
+add interface=LAN name=VLAN-10-APP vlan-id=10
+add interface=LAN name=VLAN-20-MGMT vlan-id=20
+/interface wireless security-profiles
+set [ find default=yes ] supplicant-identity=MikroTik
+add authentication-types=wpa-psk,wpa2-psk mode=dynamic-keys name="wifi wan" \
+    supplicant-identity="" wpa-pre-shared-key=admin123 wpa2-pre-shared-key=\
+    admin123
+/interface wireless
+set [ find default-name=wlan1 ] band=2ghz-g/n disabled=no mode=ap-bridge \
+    security-profile="wifi wan" ssid=aiss-uts
+/ip pool
+add name=dhcp_pool0 ranges=10.23.23.2-10.23.23.254
+add name=dhcp_pool1 ranges=20.20.20.200-20.20.20.254
+/ip dhcp-server
+add address-pool=dhcp_pool1 disabled=no interface=WAN name=dhcp1
+/interface bridge port
+add bridge=WAN interface=ether2
+add bridge=WAN interface=ether3
+add bridge=LAN interface=ether5
+add bridge=WAN interface=ether4
+add bridge=WAN interface=wlan1
+/interface l2tp-server server
+set authentication=mschap1,mschap2 enabled=yes ipsec-secret=admin123 \
+    use-ipsec=required
+/ip address
+add address=10.23.23.1/24 interface=LAN network=10.23.23.0
+add address=10.10.10.1/24 interface=VLAN-10-APP network=10.10.10.0
+add address=10.20.20.1/24 interface=VLAN-20-MGMT network=10.20.20.0
+add address=20.20.20.20/24 interface=WAN network=20.20.20.0
+/ip dhcp-server network
+add address=20.20.20.0/24 gateway=20.20.20.20
 /ip firewall filter
-add chain=input  connection-state=established,related action=accept comment="Allow established"
-add chain=input  in-interface=wg1   action=accept        comment="Allow VPN to Router"
-add chain=input  in-interface=bridge1 action=accept      comment="Allow lokal bridge"
-add chain=input  action=drop                             comment="Drop other input"
-
-# Forward: app boleh keluar internet
-add chain=forward in-interface=vlan10-app     connection-state=established,related action=accept comment="Allow App established"
-add chain=forward in-interface=vlan10-app     out-interface=ether1 action=accept comment="Allow App to Internet"
-add chain=forward in-interface=wg1            out-interface=vlan20-mgmt action=accept comment="Allow VPN to Mgmt (VLAN20)"
-add chain=forward in-interface=vlan20-mgmt    connection-state=established,related action=accept comment="Allow Mgmt established"
-
-# ISOLASI: VLAN 10 TIDAK BOLEH MENYENTUH VLAN 20
-add chain=forward in-interface=vlan10-app out-interface=vlan20-mgmt action=drop comment="DROP App -> Mgmt"
-# Internet TIDAK boleh akses langsung ke VLAN 20
-add chain=forward in-interface=ether1      out-interface=vlan20-mgmt action=drop comment="DROP WAN -> Mgmt"
-# VPN hanya boleh ke jaringan manajemen & yang diizinkan
-add chain=forward in-interface=wg1 action=drop comment="DROP VPN lainnya"
-
-# ------------------------------------------------------------
-# 4. NAT
-# ------------------------------------------------------------
+add action=add-src-to-address-list address-list="PORT SCANNER" \
+    address-list-timeout=none-dynamic chain=input comment=\
+    "CATCH PORT SCANNER" in-interface=WAN protocol=tcp psd=21,3s,3,1
 /ip firewall nat
-# Teruskan trafik web publik (80/443) ke WAF di VLAN 10
-add chain=dstnat in-interface=ether1 protocol=tcp dst-port=80,443 \
-    action=dst-nat to-addresses=10.10.10.10 to-ports=80,443 \
-    comment="DNAT Web -> SafeLine WAF (VLAN10)"
-# Masquerade internet untuk VLAN
-add chain=srcnat out-interface=ether1 action=masquerade comment="Masquerade Internet"
-
-# ------------------------------------------------------------
-# 5. DNS Statis (opsional, agar nama domain resolv dari dalam)
-# ------------------------------------------------------------
-/ip dns static add name=semogasukses.com      address=10.10.10.10
-/ip dns static add name=monitor.semogasukses.com address=10.10.10.10
-/ip dns static add name=sso.semogasukses.com  address=10.10.10.10
-# Untuk user VPN yang ingin akses traefik dashboard langsung:
-# /ip dns static add name=traefik.mgmt.semogasukses.com address=10.20.20.10
-
-# ------------------------------------------------------------
-# 6. CATATAN SERVER (Ubuntu)
-# ------------------------------------------------------------
-# Ubuntu host harus mengenali VLAN tagging dari port trunk MikroTik.
-# Contoh netplan (/etc/netplan/01-netcfg.yaml):
-#
-#   network:
-#     version: 2
-#     ethernets:
-#       eth0: { dhcp4: no, optional: true }
-#     vlans:
-#       vlan10:
-#         id: 10
-#         link: eth0
-#         addresses: [10.10.10.10/24]
-#         routes:
-#           - to: default
-#             via: 10.10.10.1
-#       vlan20:
-#         id: 20
-#         link: eth0
-#         addresses: [10.20.20.10/24]
-#         routes:
-#           - to: 10.20.20.0/24
-#             via: 10.20.20.1
-#           - to: 10.30.30.0/24
-#             via: 10.20.20.1
+add action=dst-nat chain=dstnat comment=\
+    "PORT FORWARD 80 & 443 TO 10.10.10.10" dst-address=20.20.20.20 dst-port=\
+    80 protocol=tcp to-addresses=10.10.10.10 to-ports=80
+add action=dst-nat chain=dstnat dst-address=20.20.20.20 dst-port=443 \
+    protocol=tcp to-addresses=10.10.10.10 to-ports=443
+/ip firewall raw
+add action=drop chain=prerouting comment="DROP PORT SCANNER" \
+    src-address-list="PORT SCANNER"
+add action=accept chain=prerouting comment=\
+    "ACCEPT INTERNAL IP & VPN TO 10.20.20.0/24" dst-address=10.20.20.0/24 \
+    src-address=10.20.20.0/24
+add action=accept chain=prerouting dst-address=10.20.20.0/24 src-address=\
+    10.30.30.0/24
+add action=drop chain=prerouting comment=\
+    "DROP OTHER TRAFFIC TO 10.20.20.0/24" dst-address=10.20.20.0/24
+add action=accept chain=prerouting comment=\
+    "ACCEPT NORMAL ICMP TRAFFIC LIMIT=10 BURST=20" icmp-options=8:0 limit=\
+    5,5:packet protocol=icmp
+add action=drop chain=prerouting comment="DROP ICMP FLOODING" protocol=icmp
+/ip service
+set telnet disabled=yes
+set ftp disabled=yes
+set www disabled=yes
+set ssh disabled=yes
+set api disabled=yes
+set api-ssl disabled=yes
+/ppp secret
+add local-address=10.30.30.1 name=louis password=louis123 profile=\
+    default-encryption remote-address=10.30.30.2 service=l2tp
+add local-address=10.30.30.1 name=elvin password=elvin123 profile=\
+    default-encryption remote-address=10.30.30.3 service=l2tp
+add local-address=10.30.30.1 name=hizkia password=hizkia123 profile=\
+    default-encryption remote-address=10.30.30.4 service=l2tp
+/system clock
+set time-zone-name=Asia/Jakarta
+/system identity
+set name=mikrotik-hizkia
